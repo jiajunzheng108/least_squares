@@ -34,22 +34,22 @@ g = A*TWb
 
 # 2、WaldDpFit（Wald检验+动态规划+KKT调整）
 
-1. wald检验：由位置、速度和加速度驱动，选择左右局部轨迹差异较大的点作为切分点的候选点
+wald检验：由位置、速度和加速度驱动，选择左右局部轨迹差异较大的点作为切分点的候选点
 
-   ​	
-2. 动态规划：
+动态规划：
 
-   $$
-   dp[k][i][j] = \min_{h \lt i} \left\{ dp[k - 1][h][i] + \mathrm{SSR}_{i,j} + \mu_p \left( \frac{\left\| p_{h,i}^R - p_{i,j}^L \right\|}{s_p} \right)^2 + \mu_v \left( \frac{\left\| v_{h,i}^R - v_{i,j}^L \right\|}{s_v} \right)^2 \right\}
-   $$
-   
 
-   dp[k-1]\[h][i]：前(k-1)段的最小代价
+$$
+dp[k][i][j] = \min_{h \lt i} \left\{ dp[k - 1][h][i] + \mathrm{SSR}_{i,j} + \mu_p \left( \frac{\left\| p_{h,i}^R - p_{i,j}^L \right\|}{s_p} \right)^2 + \mu_v \left( \frac{\left\| v_{h,i}^R - v_{i,j}^L \right\|}{s_v} \right)^2 \right\}
+$$
 
-   SSR<sub>i,j</sub>：当前段独立拟合的残差平方和
 
-   位置惩罚：上一段右端与当前段左端的位置差
+dp[k-1]\[h][i]：前(k-1)段的最小代价
 
-   速度惩罚：上一段右端与当前段左端的速度差
+SSR<sub>i,j</sub>：当前段独立拟合的残差平方和
 
-3. 5%边际规则选分割点
+位置惩罚：上一段右端与当前段左端的位置差
+
+速度惩罚：上一段右端与当前段左端的速度差
+
+5%边际规则选分割点
