@@ -22,6 +22,8 @@
                 "${workspaceFolder}\\src\\pipeline\\TimeQuadFitPipeline.cpp",
                 "${workspaceFolder}\\src\\core\\PiecewiseQuadFit.cpp",
                 "${workspaceFolder}\\src\\pipeline\\PiecewiseQuadFitPipeline.cpp",
+                "${workspaceFolder}\\src\\core\\WaldDpFit.cpp",
+                "${workspaceFolder}\\src\\pipeline\\WaldDpFitPipeline.cpp",
                 "${workspaceFolder}\\src\\utils\\SortUtils.cpp",
                 "-o",
                 "${workspaceFolder}\\least_squares.exe"
