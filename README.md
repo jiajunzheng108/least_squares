@@ -41,7 +41,7 @@ g = A*TWb
 2. 动态规划：
 
    ​	
-$$
+   $$
    	dp[k][i][j] = \min_{h \lt i} \left\{ dp[k - 1][h][i] + \mathrm{SSR}_{i,j} + \mu_p \left( \frac{\left\| p_{h,i}^R - p_{i,j}^L \right\|}{s_p} \right)^2 + \mu_v \left( \frac{\left\| v_{h,i}^R - v_{i,j}^L \right\|}{s_v} \right)^2 \right\}
    $$
    
