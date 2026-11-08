@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
@@ -1170,9 +1171,73 @@ std::string serializeRows(const std::map<int, RawRow>& rows) {
 std::string patchSheetXml(const std::string& sheetXml,
                           const std::vector<std::string>& shared,
                           const std::vector<std::string>& headers,
-                          const std::vector<std::vector<double>>& columns) {
+                          const std::vector<std::vector<double>>& columns,
+                          bool overwrite, int explicitStartRow) {
     RawSheet rs = parseRawSheet(sheetXml, shared);
-    if (!rs.hasSheetData) {
+
+    // 在指定行写一个新块：表头在 explicitStartRow，数据从下一行开始，
+    // 保留工作表中其它已有单元格。
+    if (explicitStartRow > 0) {
+        const std::size_t rows = columns.empty() ? 0 : columns[0].size();
+        if (!rs.hasSheetData) {
+            std::string s =
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                "<worksheet xmlns=\"http://schemas.openxmlformats.org/"
+                "spreadsheetml/2006/main\"><sheetData>";
+            s += "<row r=\"" + std::to_string(explicitStartRow) + "\">";
+            for (std::size_t i = 0; i < headers.size(); ++i)
+                s += "<c r=\"" + colName(static_cast<int>(i) + 1) +
+                     std::to_string(explicitStartRow) +
+                     "\" t=\"inlineStr\"><is><t>" + escapeXml(headers[i]) +
+                     "</t></is></c>";
+            s += "</row>";
+            for (std::size_t r = 0; r < rows; ++r) {
+                const int rowNum = explicitStartRow + 1 + static_cast<int>(r);
+                s += "<row r=\"" + std::to_string(rowNum) + "\">";
+                for (std::size_t i = 0; i < headers.size(); ++i) {
+                    if (std::isnan(columns[i][r]))
+                        continue;
+                    s += "<c r=\"" + colName(static_cast<int>(i) + 1) +
+                         std::to_string(rowNum) + "\"><v>" +
+                         formatNumber(columns[i][r]) + "</v></c>";
+                }
+                s += "</row>";
+            }
+            s += "</sheetData></worksheet>";
+            return s;
+        }
+
+        for (std::size_t i = 0; i < headers.size(); ++i) {
+            RawCell rc;
+            rc.raw = "<c r=\"" + colName(static_cast<int>(i) + 1) +
+                     std::to_string(explicitStartRow) +
+                     "\" t=\"inlineStr\"><is><t>" + escapeXml(headers[i]) +
+                     "</t></is></c>";
+            rc.value.hasValue = true;
+            rc.value.isString = true;
+            rc.value.text = headers[i];
+            rs.rows[explicitStartRow].cells[static_cast<int>(i) + 1] = rc;
+        }
+        for (std::size_t r = 0; r < rows; ++r) {
+            const int rowNum = explicitStartRow + 1 + static_cast<int>(r);
+            for (std::size_t i = 0; i < headers.size(); ++i) {
+                if (std::isnan(columns[i][r]))
+                    continue;
+                RawCell rc;
+                rc.raw = "<c r=\"" + colName(static_cast<int>(i) + 1) +
+                         std::to_string(rowNum) + "\"><v>" +
+                         formatNumber(columns[i][r]) + "</v></c>";
+                rc.value.hasValue = true;
+                rc.value.isString = false;
+                rc.value.number = columns[i][r];
+                rs.rows[rowNum].cells[static_cast<int>(i) + 1] = rc;
+            }
+        }
+        return rs.prefix + "<sheetData>" + serializeRows(rs.rows) +
+               "</sheetData>" + rs.suffix;
+    }
+
+    if (overwrite || !rs.hasSheetData) {
         // 无 sheetData：退化为重建一张最小工作表
         std::string s =
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -1187,10 +1252,13 @@ std::string patchSheetXml(const std::string& sheetXml,
         const std::size_t rows = columns.empty() ? 0 : columns[0].size();
         for (std::size_t r = 0; r < rows; ++r) {
             s += "<row r=\"" + std::to_string(r + 2) + "\">";
-            for (std::size_t i = 0; i < headers.size(); ++i)
+            for (std::size_t i = 0; i < headers.size(); ++i) {
+                if (std::isnan(columns[i][r]))
+                    continue;
                 s += "<c r=\"" + colName(static_cast<int>(i) + 1) +
                      std::to_string(r + 2) + "\"><v>" +
                      formatNumber(columns[i][r]) + "</v></c>";
+            }
             s += "</row>";
         }
         s += "</sheetData></worksheet>";
@@ -1267,6 +1335,8 @@ std::string patchSheetXml(const std::string& sheetXml,
     for (std::size_t r = 0; r < rows; ++r) {
         const int rowNum = startRow + static_cast<int>(r);
         for (std::size_t i = 0; i < headers.size(); ++i) {
+            if (std::isnan(columns[i][r]))
+                continue;
             RawCell rc;
             rc.raw = "<c r=\"" + colName(targetCols[i]) +
                      std::to_string(rowNum) + "\"><v>" +
@@ -1427,7 +1497,8 @@ void readPointsFromXlsx(const std::string& path,
 void writeColumnsToXlsx(const std::string& path,
                         const std::string& sheetName,
                         const std::vector<std::string>& headers,
-                        const std::vector<std::vector<double>>& columns) {
+                        const std::vector<std::vector<double>>& columns,
+                        bool overwrite, int startRow) {
     if (headers.size() != columns.size())
         throw std::runtime_error("headers and columns size mismatch");
 
@@ -1552,7 +1623,7 @@ void writeColumnsToXlsx(const std::string& path,
     }
 
     const std::string patched =
-        patchSheetXml(sheetXml, shared, headers, columns);
+        patchSheetXml(sheetXml, shared, headers, columns, overwrite, startRow);
     const OutPart sheetPart = makeDeflated(targetPath, patched);
 
     if (sheetExists) {

@@ -33,16 +33,15 @@ LineFitSummary runLineFitPipeline(const std::string& inputPath,
               << "  b=" << summary.uniform.b << "  Xb=" << summary.uniform.Xb
               << "  d=" << summary.uniform.d << "  sse=" << summary.uniform.sse
               << "\n";
+    for (std::size_t i = 0; i < summary.uniform.xFit.size(); ++i) {
+        std::cout << "  [" << i << "] xFit=" << summary.uniform.xFit[i]
+                  << "  yFit=" << summary.uniform.yFit[i]
+                  << "  residual=" << summary.uniform.residual[i] << "\n";
+    }          
 
     // const std::vector<std::vector<double>> columns = {
     // summary.uniform.xFit, summary.uniform.yFit};
     // writeColumnsToXlsx(inputPath, outputSheet, outputHeaders, columns);
-    
-    // std::cout << "[orthogonal] k=" << summary.orthogonal.k
-    //           << "  b=" << summary.orthogonal.b
-    //           << "  Xb=" << summary.orthogonal.Xb
-    //           << "  d=" << summary.orthogonal.d
-    //           << "  sse=" << summary.orthogonal.sse << "\n";
 
     return summary;
 }
