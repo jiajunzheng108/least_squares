@@ -47,6 +47,8 @@ PiecewiseQuadFitResult runPiecewiseQuadFitPipeline(
               << " s  window = " << result.window
               << "  step = " << result.step
               << "  lastWindow = " << result.lastWindow << "\n";
+    std::cout << "overlap = " << result.overlap
+              << "  (C1 constraint at middle shared point)\n";
     std::cout << "segments = " << result.segments.size()
               << "  nodes = " << result.nodes.size() << "\n\n";
 
@@ -102,7 +104,7 @@ PiecewiseQuadFitResult runPiecewiseQuadFitPipeline(
     // 写入“分段拟合”表：每段一行 + 最后一行总体 SSE。
     // 系数使用段内局部时间 t(从每段第一个点 t=0 开始，单位秒)：
     // q(t) = a*t^2 + b*t + c。
-    const std::string outputSheet = "分段拟合";
+    const std::string outputSheet = "Sheet1";
     const std::size_t rowCount = result.segments.size() + 1;
     const std::size_t columnCount = 10;
     std::vector<std::vector<double>> columns(
@@ -174,7 +176,7 @@ PiecewiseQuadFitResult runPiecewiseQuadFitPipeline(
               << rowCount << " rows written (last row = overall SSE)\n";
 
     // 全局二次拟合：同样使用 L1 的 X0/Y0，时间从第一个点 t=0 开始，单位秒。
-    // 结果追加到分段表下方：第 16 行表头，第 17 行数据。
+    // 结果自动追加到分段表下方(空一行后写表头)。
     const TimeQuadFitResult global = fitTimeQuadratic({x, y}, dt);
     if (global.axes.size() < 2)
         throw std::runtime_error(
@@ -205,10 +207,12 @@ PiecewiseQuadFitResult runPiecewiseQuadFitPipeline(
     globalColumns[8][0] = roundTo6(global.axes[1].sse);
     globalColumns[9][0] = roundTo6(global.sse);
 
-    writeColumnsToXlsx(inputPath, outputSheet, globalHeaders, globalColumns,
-                       false, 16);
+    const int globalStartRow =
+        writeColumnsToXlsx(inputPath, outputSheet, globalHeaders, globalColumns,
+                           false, kAppendBlockRow);
     std::cout << "[write] " << inputPath << " / " << outputSheet
-              << ": global quadratic appended at rows 16-17\n";
+              << ": global quadratic appended at rows " << globalStartRow
+              << "-" << globalStartRow + 1 << "\n";
 
     return result;
 }

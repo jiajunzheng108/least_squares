@@ -1172,12 +1172,23 @@ std::string patchSheetXml(const std::string& sheetXml,
                           const std::vector<std::string>& shared,
                           const std::vector<std::string>& headers,
                           const std::vector<std::vector<double>>& columns,
-                          bool overwrite, int explicitStartRow) {
+                          bool overwrite, int explicitStartRow,
+                          int* outStartRow) {
     RawSheet rs = parseRawSheet(sheetXml, shared);
+
+    if (outStartRow)
+        *outStartRow = 1;
+
+    // startRow<0：自动追加到最后一个已用行之后，空一行再写表头。
+    if (explicitStartRow < 0)
+        explicitStartRow =
+            rs.rows.empty() ? 1 : rs.rows.rbegin()->first + 2;
 
     // 在指定行写一个新块：表头在 explicitStartRow，数据从下一行开始，
     // 保留工作表中其它已有单元格。
     if (explicitStartRow > 0) {
+        if (outStartRow)
+            *outStartRow = explicitStartRow;
         const std::size_t rows = columns.empty() ? 0 : columns[0].size();
         if (!rs.hasSheetData) {
             std::string s =
@@ -1285,6 +1296,9 @@ std::string patchSheetXml(const std::string& sheetXml,
         if (found)
             break;
     }
+
+    if (outStartRow)
+        *outStartRow = headerRow;
 
     auto headerIt = rs.rows.find(headerRow);
     int maxHeaderCol = 0;
@@ -1494,11 +1508,11 @@ void readPointsFromXlsx(const std::string& path,
     }
 }
 
-void writeColumnsToXlsx(const std::string& path,
-                        const std::string& sheetName,
-                        const std::vector<std::string>& headers,
-                        const std::vector<std::vector<double>>& columns,
-                        bool overwrite, int startRow) {
+int writeColumnsToXlsx(const std::string& path,
+                       const std::string& sheetName,
+                       const std::vector<std::string>& headers,
+                       const std::vector<std::vector<double>>& columns,
+                       bool overwrite, int startRow) {
     if (headers.size() != columns.size())
         throw std::runtime_error("headers and columns size mismatch");
 
@@ -1622,8 +1636,10 @@ void writeColumnsToXlsx(const std::string& path,
             "xl/worksheets/sheet" + std::to_string(maxSheet + 1) + ".xml";
     }
 
+    int actualStartRow = 1;
     const std::string patched =
-        patchSheetXml(sheetXml, shared, headers, columns, overwrite, startRow);
+        patchSheetXml(sheetXml, shared, headers, columns, overwrite, startRow,
+                      &actualStartRow);
     const OutPart sheetPart = makeDeflated(targetPath, patched);
 
     if (sheetExists) {
@@ -1635,4 +1651,5 @@ void writeColumnsToXlsx(const std::string& path,
     }
 
     writeZip(path, parts);
+    return actualStartRow;
 }

@@ -138,9 +138,8 @@ WaldDpFitResult runWaldDpFitPipeline(
                   << node.day << "\n";
     }
 
-    // 追加写入“分段拟合”表：第 19 行表头，20-21 段，22 合计。
+    // 追加写入“分段拟合”表：自动放到最后一个已用行之后，空一行再写表头。
     if (result.chosen.K > 0 && !result.chosen.segments.empty()) {
-        const int dpBlockStartRow = 19;
         const std::size_t segCount = result.chosen.segments.size();
         const std::size_t dataRows = segCount + 1;
         std::vector<std::vector<double>> columns(
@@ -189,8 +188,9 @@ WaldDpFitResult runWaldDpFitPipeline(
             "Y残差平方和",
             "残差平方和合计"};
 
-        writeColumnsToXlsx(inputPath, "分段拟合", headers, columns, false,
-                           dpBlockStartRow);
+        const int dpBlockStartRow =
+            writeColumnsToXlsx(inputPath, "分段拟合", headers, columns, false,
+                               kAppendBlockRow);
         std::cout << "\n[write] " << inputPath << " / 分段拟合: DP block at rows "
                   << dpBlockStartRow << "-" << dpBlockStartRow + dataRows
                   << "\n";

@@ -39,6 +39,7 @@ struct PiecewiseQuadFitResult {
     int window;     // 普通段点数
     int step;       // 相邻段起点间隔
     int lastWindow; // 最后一段点数
+    int overlap;    // 相邻段重合点数 = window - step
 
     std::vector<PiecewiseSegmentResult> segments;
     std::vector<PiecewiseNodeResult> nodes;
@@ -60,9 +61,13 @@ struct PiecewiseQuadFitResult {
 
 // 分段二次最小二乘拟合。
 // 前 K-1 段取 window 个点、步长 step；最后一段从同一节点开始，取 lastWindow 个点。
-// 相邻段在重合点强制位置连续和速度连续(C1)，不强制加速度连续。
+// 相邻段重合 overlap = window - step 个点(要求 1 <= overlap <= window-1)，
+// 每个重合点在每个覆盖它的段中各计一次，权重为 1/覆盖次数，总权重恒为 1。
+// 在重合区的中间点(overlap 为偶数时取偏右者)强制位置连续和速度连续(C1)，
+// 不强制加速度连续。
 // 默认 window=10, step=9, lastWindow=12，对应 111 点：前 11 段各 10 点，
-// 第 12 段覆盖第 100..111 点(12 点)。
+// 第 12 段覆盖第 100..111 点(12 点)，即 overlap=1。
+// 若要相邻段重合 3 点，可传 window=10, step=7, lastWindow=13（111 点）。
 PiecewiseQuadFitResult fitPiecewiseQuadratic(
     const std::vector<double>& x,
     const std::vector<double>& y,

@@ -20,14 +20,19 @@ void readPointsFromXlsx(const std::string& path,
 // - overwrite=true：清空目标工作表，重新写表头(第 1 行)和数据(第 2 行起)。
 // - startRow>0：在指定行(startRow)写表头，数据从 startRow+1 行开始，
 //   保留该工作表其它单元格；此时忽略 overwrite。
+// - startRow=kAppendBlockRow(<0)：自动追加到该工作表最后一个已用行之后，
+//   空一行再写表头，用于在同一张表里写第二个独立数据块。
 // 写入时 columns 中的 NaN 会被跳过，对应单元格留空。
 // 保留其它工作表，原地修改 xlsx 文件。headers 与 columns 数量须一致，
 // 各数据列长度须一致。
-void writeColumnsToXlsx(const std::string& path,
-                        const std::string& sheetName,
-                        const std::vector<std::string>& headers,
-                        const std::vector<std::vector<double>>& columns,
-                        bool overwrite = false,
-                        int startRow = 0);
+// 返回值：本次写入实际使用的表头行号(块模式为表头行，追加模式为表头所在行)。
+constexpr int kAppendBlockRow = -1;
+
+int writeColumnsToXlsx(const std::string& path,
+                       const std::string& sheetName,
+                       const std::vector<std::string>& headers,
+                       const std::vector<std::vector<double>>& columns,
+                       bool overwrite = false,
+                       int startRow = 0);
 
 #endif

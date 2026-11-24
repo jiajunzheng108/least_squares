@@ -1,4 +1,4 @@
-// 分段二次最小二乘拟合(相邻段 C1 连续)
+// 分段二次最小二乘拟合(相邻段 C1 连续，支持任意重合点数)
 #include "core/PiecewiseQuadFit.h"
 
 #include <algorithm>
@@ -23,6 +23,12 @@ double localU(int j, int count) {
            static_cast<double>(count - 1);
 }
 
+// 第 k 个结合点(两段重合区中间)的全局点号(0-based)。
+int junctionPoint(const std::vector<SegmentLayout>& layouts, int k,
+                  int overlap) {
+    return layouts[static_cast<std::size_t>(k + 1)].start + overlap / 2;
+}
+
 // 按前 K-1 段取 window 点、最后一段取 lastWindow 点的规则分段。
 std::vector<SegmentLayout> buildSegments(int pointCount, double dt, int window,
                                          int step, int lastWindow) {
@@ -32,6 +38,10 @@ std::vector<SegmentLayout> buildSegments(int pointCount, double dt, int window,
         throw std::invalid_argument("lastWindow must be at least 3");
     if (step < 1)
         throw std::invalid_argument("step must be positive");
+    const int overlap = window - step;
+    if (overlap < 1 || overlap >= window)
+        throw std::invalid_argument(
+            "overlap = window - step must be in [1, window-1]");
     if (pointCount < lastWindow)
         throw std::invalid_argument(
             "point count is smaller than lastWindow");
@@ -124,12 +134,19 @@ PiecewiseQuadFitResult fitPiecewiseQuadratic(
     const std::vector<SegmentLayout> layouts =
         buildSegments(pointCount, dt, window, step, lastWindow);
     const int segmentCount = static_cast<int>(layouts.size());
+    const int overlap = window - step;
     const int variableCount = 3 * segmentCount;
     const int constraintCount = 2 * (segmentCount - 1);
 
     int rowCount = 0;
     for (const SegmentLayout& layout : layouts)
         rowCount += layout.count;
+
+    // 每个全局点被多少个段覆盖；权重取 1/覆盖次数，保证每个观测总权重为 1。
+    std::vector<int> cover(static_cast<std::size_t>(pointCount), 0);
+    for (const SegmentLayout& layout : layouts)
+        for (int j = 0; j < layout.count; ++j)
+            ++cover[static_cast<std::size_t>(layout.start + j)];
 
     // 设计矩阵 A：每段 [u^2, u, 1] 三列。
     std::vector<double> A(static_cast<std::size_t>(rowCount) * variableCount,
@@ -148,13 +165,10 @@ PiecewiseQuadFitResult fitPiecewiseQuadratic(
             A[static_cast<std::size_t>(row) * variableCount + 3 * k + 2] =
                 1.0;
 
-            const bool sharedWithPrevious = (k > 0 && j == 0);
-            const bool sharedWithNext =
-                (k + 1 < segmentCount && j == layout.count - 1);
-            if (sharedWithPrevious || sharedWithNext)
-                weight[row] = 0.5;
-
             rowPoint[row] = layout.start + j;
+            weight[row] = 1.0 / static_cast<double>(
+                                    cover[static_cast<std::size_t>(
+                                        rowPoint[row])]);
             ++row;
         }
     }
@@ -177,7 +191,7 @@ PiecewiseQuadFitResult fitPiecewiseQuadratic(
         }
     }
 
-    // 约束 C*theta=0：位置连续 + 速度连续。
+    // 约束 C*theta=0：在重合区中间点处位置连续 + 速度连续。
     std::vector<double> C(static_cast<std::size_t>(constraintCount) *
                               variableCount,
                           0.0);
@@ -186,25 +200,33 @@ PiecewiseQuadFitResult fitPiecewiseQuadratic(
         const int baseK = 3 * k;
         const int baseNext = 3 * (k + 1);
 
-        // 位置：p_k(+1) - p_{k+1}(-1) = 0
-        C[static_cast<std::size_t>(con) * variableCount + baseK + 0] = 1.0;
-        C[static_cast<std::size_t>(con) * variableCount + baseK + 1] = 1.0;
-        C[static_cast<std::size_t>(con) * variableCount + baseK + 2] = 1.0;
-        C[static_cast<std::size_t>(con) * variableCount + baseNext + 0] = -1.0;
-        C[static_cast<std::size_t>(con) * variableCount + baseNext + 1] = 1.0;
-        C[static_cast<std::size_t>(con) * variableCount + baseNext + 2] = -1.0;
+        const int junction = junctionPoint(layouts, k, overlap);
+        const double uL =
+            localU(junction - layouts[k].start, layouts[k].count);
+        const double uR =
+            localU(junction - layouts[k + 1].start, layouts[k + 1].count);
+
+        // 位置：p_k(uL) - p_{k+1}(uR) = 0
+        const std::size_t posRow =
+            static_cast<std::size_t>(con) * variableCount;
+        C[posRow + baseK + 0] = uL * uL;
+        C[posRow + baseK + 1] = uL;
+        C[posRow + baseK + 2] = 1.0;
+        C[posRow + baseNext + 0] = -uR * uR;
+        C[posRow + baseNext + 1] = -uR;
+        C[posRow + baseNext + 2] = -1.0;
         ++con;
 
-        // 速度：h_{k+1}(2a_k+b_k) - h_k(-2a_{k+1}+b_{k+1}) = 0
+        // 速度：h_{k+1}(2a_k uL+b_k) - h_k(2a_{k+1} uR+b_{k+1}) = 0
         // 这里用毫秒作为长度单位，仅对约束行做统一缩放，不改变解。
         const double hk = layouts[k].halfSpan * 1000.0;
         const double hkNext = layouts[k + 1].halfSpan * 1000.0;
-        C[static_cast<std::size_t>(con) * variableCount + baseK + 0] =
-            2.0 * hkNext;
-        C[static_cast<std::size_t>(con) * variableCount + baseK + 1] = hkNext;
-        C[static_cast<std::size_t>(con) * variableCount + baseNext + 0] =
-            2.0 * hk;
-        C[static_cast<std::size_t>(con) * variableCount + baseNext + 1] = -hk;
+        const std::size_t velRow =
+            static_cast<std::size_t>(con) * variableCount;
+        C[velRow + baseK + 0] = 2.0 * hkNext * uL;
+        C[velRow + baseK + 1] = hkNext;
+        C[velRow + baseNext + 0] = -2.0 * hk * uR;
+        C[velRow + baseNext + 1] = -hk;
         ++con;
     }
 
@@ -262,6 +284,7 @@ PiecewiseQuadFitResult fitPiecewiseQuadratic(
     result.window = window;
     result.step = step;
     result.lastWindow = lastWindow;
+    result.overlap = overlap;
     result.segments.resize(static_cast<std::size_t>(segmentCount));
     result.nodes.resize(static_cast<std::size_t>(segmentCount - 1));
 
@@ -271,8 +294,6 @@ PiecewiseQuadFitResult fitPiecewiseQuadratic(
     result.yResidual.assign(static_cast<std::size_t>(pointCount), 0.0);
     result.pointSegment.assign(static_cast<std::size_t>(pointCount), 0);
     result.pointType.assign(static_cast<std::size_t>(pointCount), 0);
-
-    std::vector<bool> assigned(static_cast<std::size_t>(pointCount), false);
 
     for (int k = 0; k < segmentCount; ++k) {
         const SegmentLayout& layout = layouts[k];
@@ -304,14 +325,6 @@ PiecewiseQuadFitResult fitPiecewiseQuadratic(
             const double ry = y[static_cast<std::size_t>(index)] - fy;
             sseX += rx * rx;
             sseY += ry * ry;
-
-            // 重合点由前一段优先填入；C1 约束保证两段在该点一致。
-            if (!assigned[static_cast<std::size_t>(index)]) {
-                assigned[static_cast<std::size_t>(index)] = true;
-                result.pointSegment[static_cast<std::size_t>(index)] = k + 1;
-                result.xFit[static_cast<std::size_t>(index)] = fx;
-                result.yFit[static_cast<std::size_t>(index)] = fy;
-            }
         }
         segment.rmseX =
             std::sqrt(sseX / static_cast<double>(layout.count));
@@ -319,14 +332,36 @@ PiecewiseQuadFitResult fitPiecewiseQuadratic(
             std::sqrt(sseY / static_cast<double>(layout.count));
     }
 
-    for (int i = 1; i < segmentCount; ++i)
-        result.pointType[static_cast<std::size_t>(layouts[i].start)] = 1;
+    // 点级结果：以结合点 g 为界，i <= g 归左段、i > g 归右段。
+    std::vector<int> junctions(static_cast<std::size_t>(segmentCount - 1), 0);
+    for (int k = 0; k + 1 < segmentCount; ++k)
+        junctions[static_cast<std::size_t>(k)] =
+            junctionPoint(layouts, k, overlap);
 
     for (int i = 0; i < pointCount; ++i) {
-        if (!assigned[static_cast<std::size_t>(i)])
+        const int owner = static_cast<int>(
+            std::lower_bound(junctions.begin(), junctions.end(), i) -
+            junctions.begin());
+        if (owner < 0 || owner >= segmentCount)
             throw std::runtime_error(
                 "piecewise quad fit: some points are not covered");
+        const SegmentLayout& layout =
+            layouts[static_cast<std::size_t>(owner)];
+        const PiecewiseSegmentResult& segment =
+            result.segments[static_cast<std::size_t>(owner)];
+        const double u = localU(i - layout.start, layout.count);
+        result.xFit[static_cast<std::size_t>(i)] =
+            segment.coeffX[0] * u * u + segment.coeffX[1] * u +
+            segment.coeffX[2];
+        result.yFit[static_cast<std::size_t>(i)] =
+            segment.coeffY[0] * u * u + segment.coeffY[1] * u +
+            segment.coeffY[2];
+        result.pointSegment[static_cast<std::size_t>(i)] = owner + 1;
     }
+
+    for (int k = 0; k + 1 < segmentCount; ++k)
+        result.pointType[static_cast<std::size_t>(
+            junctions[static_cast<std::size_t>(k)])] = 1;
 
     result.sseX = 0.0;
     result.sseY = 0.0;
@@ -355,12 +390,17 @@ PiecewiseQuadFitResult fitPiecewiseQuadratic(
 
     for (int k = 0; k + 1 < segmentCount; ++k) {
         PiecewiseNodeResult& node = result.nodes[static_cast<std::size_t>(k)];
+        const int junction = junctionPoint(layouts, k, overlap);
         node.index = k + 1;
-        node.point = layouts[k + 1].start + 1;
-        node.t = static_cast<double>(layouts[k + 1].start) * dt;
+        node.point = junction + 1;
+        node.t = static_cast<double>(junction) * dt;
 
         const double hLeft = layouts[k].halfSpan;
         const double hRight = layouts[k + 1].halfSpan;
+        const double uL =
+            localU(junction - layouts[k].start, layouts[k].count);
+        const double uR =
+            localU(junction - layouts[k + 1].start, layouts[k + 1].count);
 
         const double* leftX = &thetaX[static_cast<std::size_t>(3 * k)];
         const double* leftY = &thetaY[static_cast<std::size_t>(3 * k)];
@@ -369,19 +409,23 @@ PiecewiseQuadFitResult fitPiecewiseQuadratic(
         const double* rightY =
             &thetaY[static_cast<std::size_t>(3 * (k + 1))];
 
-        // 左侧段右端 u=+1
-        const double xLeft = leftX[0] + leftX[1] + leftX[2];
-        const double yLeft = leftY[0] + leftY[1] + leftY[2];
-        const double vxLeft = (2.0 * leftX[0] + leftX[1]) / hLeft;
-        const double vyLeft = (2.0 * leftY[0] + leftY[1]) / hLeft;
+        // 左侧段在 uL 处
+        const double xLeft =
+            leftX[0] * uL * uL + leftX[1] * uL + leftX[2];
+        const double yLeft =
+            leftY[0] * uL * uL + leftY[1] * uL + leftY[2];
+        const double vxLeft = (2.0 * leftX[0] * uL + leftX[1]) / hLeft;
+        const double vyLeft = (2.0 * leftY[0] * uL + leftY[1]) / hLeft;
         const double axLeft = 2.0 * leftX[0] / (hLeft * hLeft);
         const double ayLeft = 2.0 * leftY[0] / (hLeft * hLeft);
 
-        // 右侧段左端 u=-1
-        const double xRight = rightX[0] - rightX[1] + rightX[2];
-        const double yRight = rightY[0] - rightY[1] + rightY[2];
-        const double vxRight = (-2.0 * rightX[0] + rightX[1]) / hRight;
-        const double vyRight = (-2.0 * rightY[0] + rightY[1]) / hRight;
+        // 右侧段在 uR 处
+        const double xRight =
+            rightX[0] * uR * uR + rightX[1] * uR + rightX[2];
+        const double yRight =
+            rightY[0] * uR * uR + rightY[1] * uR + rightY[2];
+        const double vxRight = (2.0 * rightX[0] * uR + rightX[1]) / hRight;
+        const double vyRight = (2.0 * rightY[0] * uR + rightY[1]) / hRight;
         const double axRight = 2.0 * rightX[0] / (hRight * hRight);
         const double ayRight = 2.0 * rightY[0] / (hRight * hRight);
 

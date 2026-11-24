@@ -14,8 +14,10 @@ int main() {
         // runTimeQuadFitPipeline("lab110.xlsx", "L1", "X0", "Y0", 0.001);
         // runPiecewiseQuadFitPipeline("lab110.xlsx", "L1", "X0", "Y0", 0.001,
         //                             10, 9, 12);
-        runWaldDpFitPipeline("lab110.xlsx", "L1", "X0", "Y0", 0.001,
-                             7, 6, 0, 0.05, 1.0e4, 1.0e4);
+        runPiecewiseQuadFitPipeline("lab110.xlsx", "L1", "X0", "Y0", 0.001,
+                                    10, 7, 13);  // 相邻段重合 3 点
+        // runWaldDpFitPipeline("lab110.xlsx", "L1", "X0", "Y0", 0.001,
+                            //  7, 6, 0, 0.05, 1.0e4, 1.0e4);
     } catch (const std::exception& e) {
         std::cerr << "失败: " << e.what() << "\n";
         return 1;
